@@ -1,0 +1,112 @@
+import vk_api
+import os
+import random
+import time
+from vk_api import VkUpload
+from vk_api.longpoll import VkLongPoll, VkEventType
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
+USER_ID = 84571011
+
+auto_send_enabled = True
+
+def send_mem(vk_session, upload):
+    vk = vk_session.get_api()
+    folder = 'mems'
+    images = [f for f in os.listdir(folder)
+              if f.endswith(('.jpg', '.jpeg', '.png', '.gif'))]
+    
+    if not images:
+        print('В папке нет картинок!')
+        return False
+    
+    random_image_name = random.choice(images)
+    image_path = os.path.join(folder, random_image_name)
+
+    peer_id = USER_ID
+    photo = upload.photo_messages(photos=image_path, peer_id=peer_id)[0]
+    attachment = f"photo{photo['owner_id']}_{photo['id']}"
+
+    vk.messages.send(user_id=peer_id, message='Держи мем!',
+                   attachment=attachment, 
+                   random_id=random.randint(1, 100000))
+    return True
+
+#обрабатывает команды от пользователя
+def handle_commands(vk, upload, peer_id, text):
+    global auto_send_enabled
+
+    if text == 'мем':
+        folder = 'mems'
+        images = [f for f in os.listdir(folder)
+                  if f.endswith(('.jpg', '.jpeg', '.png', '.gif'))]
+        if images:
+            random_image_name = random.choice(images)
+            image_path = os.path.join(folder, random_image_name)
+            photo = upload.photo_messages(photos=image_path, peer_id=peer_id)[0]
+            attachment = f"photo{photo['owner_id']}_{photo['id']}"
+            vk.messages.send(user_id=peer_id, message='Мем!',
+                           attachment=attachment, 
+                           random_id=random.randint(1, 100000))
+        else:
+             vk.messages.send(user_id=peer_id, message='В папке нет мемов!',
+                           random_id=random.randint(1, 100000))
+  # Команда: предсказание
+    elif text == 'предсказание':
+        predictions = [
+            "Завтра тебя ждёт удачный день!",
+            "Кто-то думает о тебе прямо сейчас"
+         ]
+        prediction = random.choice(predictions)
+        vk.messages.send(user_id=peer_id, message=prediction,
+                        random_id=random.randint(1, 100000)) 
+        
+        # # Команда: стоп - остановить авторассылку
+    elif text == 'стоп':
+        auto_send_enabled = False
+        vk.messages.send(user_id=peer_id, message='Авторассылка остановлена. Напиши "старт" чтобы возобновить.',
+                       random_id=random.randint(1, 100000))
+    
+    # Команда: старт - запустить авторассылку
+    elif text == 'старт':
+        auto_send_enabled = True
+        vk.messages.send(user_id=peer_id, message='Авторассылка запущена. Мемы будут приходить каждую минуту!',
+                       random_id=random.randint(1, 100000))
+        
+# Создаём сессию ВК один раз
+vk_session = vk_api.VkApi(token=TOKEN)
+vk = vk_session.get_api()
+upload = VkUpload(vk_session)
+
+# Подключаем LongPoll для получения сообщений в реальном времени
+longpoll = VkLongPoll(vk_session)
+
+last_mem_time = time.time()
+
+while True:
+    try:
+        current_time = time.time()
+        # Отправляем автоматический мем, если прошла минута и авторассылка включена
+        if auto_send_enabled and (current_time - last_mem_time) >= 60:
+            send_mem(vk_session, upload)
+            last_mem_time = current_time
+
+         # Проверяем новые сообщения
+        for event in longpoll.check():
+            if event.type == VkEventType.MESSAGE_NEW and event.to_me:
+                text = event.text.lower().strip()
+        # Если сообщение от нашего пользователя
+                if event.user_id == USER_ID:
+                    handle_commands(vk, upload, USER_ID, text)
+        time.sleep(1)
+    except KeyboardInterrupt:
+        break
+
+
+
+
+
